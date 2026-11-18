@@ -164,7 +164,6 @@ func initPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
 			long_url   TEXT NOT NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
-		CREATE INDEX IF NOT EXISTS idx_links_long_url ON links(long_url);
 	`
 	if _, err := db.ExecContext(ctx, schema); err != nil {
 		db.Close()
