@@ -2,7 +2,7 @@
 
 Ejercicio 0001 de 1024 del curso **¿Cómo funciona...?**. Un ejercicio por semana, en español, con un prototipo funcional que se levanta con una sola orden.
 
-¿Qué pasa entre que pegás una URL larga y aparece un `bit.ly/jzgKpHNqNO`? Este prototipo recorre ese camino completo: genera un ID Snowflake con timestamp, `worker_id` y secuencia en memoria, lo convierte en base62, guarda el link, redirige desde caché y registra cada click para poder responder después cuántos hubo, de dónde vinieron y en qué día.
+¿Qué pasa entre que pegás una URL larga y aparece un `bit.ly/jzgKpHNqNO`? Este prototipo recorre ese camino completo: genera un ID Snowflake con timestamp, `worker` y secuencia en memoria, lo convierte en base62, guarda el link, redirige desde caché y registra cada click para poder responder después cuántos hubo, de dónde vinieron y en qué día.
 
 ## Stack
 
@@ -56,15 +56,15 @@ Las líneas punteadas son publicaciones asíncronas: el redirect no espera a Kaf
 No hay números aleatorios ni hash: la key es un ID Snowflake de 63 bits escrito en base62. El `Generator` de `backend/idgen.go` arma el entero con un mutex; Postgres no interviene en la generación.
 
 ```text
-[ timestamp 41 bits | worker_id 10 bits | secuencia 12 bits ]
-compositeID = (timestamp << 22) | (worker_id << 12) | secuencia
+[ timestamp 41 bits | worker 10 bits | secuencia 12 bits ]
+compositeID = (timestamp << 22) | (worker << 12) | secuencia
 key = encodeBase62(compositeID)
 ```
 
 1. `timestamp = time.Now().UnixMilli() - 1704067200000` → milisegundos desde el epoch `2024-01-01T00:00:00Z`. Cabe en 41 bits.
-2. `worker_id`: viene de la env var `WORKER_ID` (0 a 1023, en local `0`). Cada servidor tiene el suyo y nunca se repite.
+2. `worker`: viene de la env var `WORKER_ID` (0 a 1023, en local `0`). Cada servidor tiene el suyo y nunca se repite.
 3. `secuencia`: contador en memoria de 0 a 4095. Se resetea a 0 en cada milisegundo nuevo; si se llena dentro del mismo ms, el generador espera al siguiente.
-4. Ejemplo con `timestamp = 63158400123`, `worker_id = 0` y `secuencia = 0`: `compositeID = 264905530269499392` → `key = "jzgKpHNqNO"`.
+4. Ejemplo con `timestamp = 63158400123`, `worker = 0` y `secuencia = 0`: `compositeID = 264905530269499392` → `key = "jzgKpHNqNO"`.
 5. `INSERT INTO links (short_code, long_url) VALUES ('jzgKpHNqNO', ...)`. Esa string es la key: `http://localhost:8080/jzgKpHNqNO`.
 
 Si el reloj retrocede, el generador espera a alcanzar el último timestamp usado antes de seguir, para no emitir IDs duplicados. En el redirect se busca directamente `WHERE short_code = <key>`: la key ya identifica al link, no hace falta descomponerla.
@@ -72,7 +72,7 @@ Si el reloj retrocede, el generador espera a alcanzar el último timestamp usado
 ### Por qué la key es compuesta
 
 - **No es predecible**: no arranca en 1 ni sigue una secuencia global visible; arranca con el milisegundo actual desde 2024.
-- **No necesita secuencia central**: la secuencia vive en memoria del proceso y se reinicia cada milisegundo. La unicidad entre servidores viene del `worker_id`, que es distinto en cada uno, así que no hay colisiones al agregar más.
+- **No necesita secuencia central**: la secuencia vive en memoria del proceso y se reinicia cada milisegundo. La unicidad entre servidores viene del `worker`, que es distinto en cada uno, así que no hay colisiones al agregar más.
 - **Queda ordenada por tiempo**: como el timestamp ocupa los 41 bits altos, ordenar los IDs numéricos orderifica los links por fecha de creación. Las keys base62 no conservan ese orden lexicográfico con este alfabeto.
 
 ## Cómo correrlo
@@ -162,7 +162,7 @@ Este es un **ejercicio con alcance deliberado, no un sistema de producción**. E
 
 **Las decisiones son intencionales para mantener el ejercicio legible.** Se prefirió un código directo, con pocas abstracciones y dependencias, antes que una arquitectura preparada para escalar. En particular:
 
-- La key es un ID Snowflake (timestamp desde 2024, `worker_id` y secuencia en memoria) convertido a base62, sin aleatoriedad, hash ni UUID.
+- La key es un ID Snowflake (timestamp desde 2024, `worker` y secuencia en memoria) convertido a base62, sin aleatoriedad, hash ni UUID.
 - El redirect publica el evento directamente en Kafka, sin outbox ni transacciones coordinadas.
 - La entrega es at-least-once: un replay del consumer puede duplicar filas de click, y eso es aceptable para este contador.
 - ClickHouse se consulta por su interfaz HTTP con `net/http`, sin un cliente oficial, para que la query sea visible en el código.
