@@ -11,7 +11,7 @@ Acortador de URLs de ejercicio: el valor está en que el recorrido de la request
 
 ## Convenciones
 
-- Español rioplatense en docs, comentarios y mensajes de usuario; tono directo.
+- Español rioplatense en docs, comentarios y mensajes de usuario; tono directo. Inglés en los nombres de los tests y en los mensajes de commits.
 - Commits `tipo(scope): descripción` en minúsculas, con scope `backend`, `frontend`, `docker` o `docs`. Commitear y pushear solo cuando el usuario lo pida.
 - Preferí código directo y pocas abstracciones: si una opción hace el ejemplo más corto y más visible, gana. Una dependencia nueva necesita una razón que quede registrada en el ADR correspondiente.
 - `WORKER_ID`, `worker` y `servidor` son los nombres del identificador de servidor, en código y en docs.
