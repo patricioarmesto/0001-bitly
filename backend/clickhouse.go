@@ -11,13 +11,17 @@ import (
 	"time"
 )
 
+type clickhouseConfig struct {
+	URL      string
+	User     string
+	Password string
+}
+
 // ClickHouse se usa por su interfaz HTTP: la query viaja en el body y los
 // parámetros como param_*, así que no hace falta un cliente oficial acá.
 type ClickHouse struct {
-	baseURL  string
-	user     string
-	password string
-	client   *http.Client
+	cfg    clickhouseConfig
+	client *http.Client
 }
 
 type ClickEvent struct {
@@ -43,12 +47,11 @@ type StatsResponse struct {
 	ByDay     []DayStat     `json:"by_day"`
 }
 
-func NewClickHouse(baseURL, user, password string) *ClickHouse {
+func NewClickHouse(cfg clickhouseConfig) *ClickHouse {
+	cfg.URL = strings.TrimRight(cfg.URL, "/")
 	return &ClickHouse{
-		baseURL:  strings.TrimRight(baseURL, "/"),
-		user:     user,
-		password: password,
-		client:   &http.Client{Timeout: 5 * time.Second},
+		cfg:    cfg,
+		client: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
@@ -144,7 +147,7 @@ func (ch *ClickHouse) Stats(ctx context.Context, code string) (StatsResponse, er
 }
 
 func (ch *ClickHouse) exec(ctx context.Context, query string, params map[string]string, out any) error {
-	endpoint := ch.baseURL + "/"
+	endpoint := ch.cfg.URL + "/"
 	values := url.Values{}
 	// ClickHouse cita los UInt64 como strings en JSON; los counts del panel
 	// se decodifican como números en Go.
@@ -158,8 +161,8 @@ func (ch *ClickHouse) exec(ctx context.Context, query string, params map[string]
 	if err != nil {
 		return err
 	}
-	if ch.user != "" {
-		request.SetBasicAuth(ch.user, ch.password)
+	if ch.cfg.User != "" {
+		request.SetBasicAuth(ch.cfg.User, ch.cfg.Password)
 	}
 	response, err := ch.client.Do(request)
 	if err != nil {

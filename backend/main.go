@@ -21,30 +21,30 @@ import (
 )
 
 type config struct {
-	Port               string
-	DatabaseURL        string
-	RedisAddr          string
-	KafkaBrokers       []string
-	KafkaTopic         string
-	ClickHouseURL      string
-	ClickHouseUser     string
-	ClickHousePassword string
-	BaseURL            string
-	WorkerID           int64
+	Port         string
+	DatabaseURL  string
+	RedisAddr    string
+	KafkaBrokers []string
+	KafkaTopic   string
+	ClickHouse   clickhouseConfig
+	BaseURL      string
+	WorkerID     int64
 }
 
 func loadConfig() config {
 	return config{
-		Port:               env("PORT", "8080"),
-		DatabaseURL:        env("DATABASE_URL", "postgres://bitly:bitly@localhost:5432/bitly?sslmode=disable"),
-		RedisAddr:          env("REDIS_ADDR", "localhost:6379"),
-		KafkaBrokers:       strings.Split(env("KAFKA_BROKERS", "localhost:9092"), ","),
-		KafkaTopic:         env("KAFKA_TOPIC", "clicks"),
-		ClickHouseURL:      env("CLICKHOUSE_URL", "http://localhost:8123"),
-		ClickHouseUser:     env("CLICKHOUSE_USER", "default"),
-		ClickHousePassword: env("CLICKHOUSE_PASSWORD", ""),
-		BaseURL:            env("BASE_URL", "http://localhost:8080"),
-		WorkerID:           workerIDFromEnv(),
+		Port:         env("PORT", "8080"),
+		DatabaseURL:  env("DATABASE_URL", "postgres://bitly:bitly@localhost:5432/bitly?sslmode=disable"),
+		RedisAddr:    env("REDIS_ADDR", "localhost:6379"),
+		KafkaBrokers: strings.Split(env("KAFKA_BROKERS", "localhost:9092"), ","),
+		KafkaTopic:   env("KAFKA_TOPIC", "clicks"),
+		ClickHouse: clickhouseConfig{
+			URL:      env("CLICKHOUSE_URL", "http://localhost:8123"),
+			User:     env("CLICKHOUSE_USER", "default"),
+			Password: env("CLICKHOUSE_PASSWORD", ""),
+		},
+		BaseURL:  env("BASE_URL", "http://localhost:8080"),
+		WorkerID: workerIDFromEnv(),
 	}
 }
 
@@ -108,7 +108,7 @@ func main() {
 	}
 	defer producer.Close()
 
-	clickhouse := NewClickHouse(cfg.ClickHouseURL, cfg.ClickHouseUser, cfg.ClickHousePassword)
+	clickhouse := NewClickHouse(cfg.ClickHouse)
 	if err := clickhouse.EnsureSchema(startupCtx); err != nil {
 		log.Fatalf("ClickHouse: %v", err)
 	}
