@@ -20,5 +20,5 @@ El redirect busca `WHERE short_code = <key>`: la key ya identifica al link y no 
 - Los IDs quedan ordenados por tiempo de creación porque el timestamp ocupa los bits altos y base62 preserva el orden numérico del entero.
 - Cada servidor debe configurar su `WORKER_ID` y no duplicarlo. Con 10 bits hay hasta 1024 servidores.
 - Un solo proceso está limitado a 4096 links por milisegundo; pasado ese límite absorbe espera hasta el siguiente milisegundo.
-- El reloj atrasado bloquea al generador hasta recuperar el último timestamp usado. Es preferible a emitir IDs repetidos; un desfase grande se reporta como error.
+- El reloj atrasado bloquea al generador hasta recuperar el último timestamp usado. Es preferible a emitir IDs repetidos: el generador sigue esperando, sin importar el tamaño del desfase.
 - `int64` alcanza para los 63 bits del compuesto; `encodeBase62` sigue trabajando con `uint64` porque el corrimiento y el alfabeto no cambiaron.
