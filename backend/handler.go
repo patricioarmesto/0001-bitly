@@ -32,14 +32,17 @@ func encodeBase62(num uint64) string {
 	return result
 }
 
+// ShortCode es la key base62 de un link; el tipo la distingue de otras strings.
+type ShortCode string
+
 type shortenRequest struct {
 	URL string `json:"url"`
 }
 
 type shortenResponse struct {
-	Code     string `json:"code"`
-	ShortURL string `json:"short_url"`
-	LongURL  string `json:"long_url"`
+	Code     ShortCode `json:"code"`
+	ShortURL string    `json:"short_url"`
+	LongURL  string    `json:"long_url"`
 }
 
 func (app *App) routes() http.Handler {
@@ -87,8 +90,8 @@ func (app *App) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := encodeBase62(uint64(id))
-	if _, err := app.db.ExecContext(r.Context(), "INSERT INTO links (short_code, long_url) VALUES ($1, $2)", key, longURL); err != nil {
+	key := ShortCode(encodeBase62(uint64(id)))
+	if _, err := app.db.ExecContext(r.Context(), "INSERT INTO links (short_code, long_url) VALUES ($1, $2)", string(key), longURL); err != nil {
 		log.Printf("guardar link: %v", err)
 		writeError(w, http.StatusInternalServerError, "no se pudo guardar el link")
 		return
@@ -99,7 +102,7 @@ func (app *App) handleShorten(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
-	code := strings.TrimPrefix(r.URL.Path, "/")
+	code := ShortCode(strings.TrimPrefix(r.URL.Path, "/"))
 	if code == "" || !validCode(code) {
 		http.NotFound(w, r)
 		return
@@ -111,7 +114,7 @@ func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, redis.Nil) {
 			log.Printf("leer caché %s: %v", key, err)
 		}
-		err = app.db.QueryRowContext(r.Context(), "SELECT long_url FROM links WHERE short_code = $1", code).Scan(&longURL)
+		err = app.db.QueryRowContext(r.Context(), "SELECT long_url FROM links WHERE short_code = $1", string(code)).Scan(&longURL)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -129,7 +132,7 @@ func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
 }
 
 func (app *App) handleStats(w http.ResponseWriter, r *http.Request) {
-	code := r.PathValue("code")
+	code := ShortCode(r.PathValue("code"))
 	if !validCode(code) {
 		writeError(w, http.StatusBadRequest, "código inválido")
 		return
@@ -148,7 +151,7 @@ func (app *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
-func (app *App) recordClick(code, country string) {
+func (app *App) recordClick(code ShortCode, country string) {
 	go func() {
 		event := ClickEvent{Code: code, Country: country, ClickedAt: time.Now().UTC()}
 		payload, err := json.Marshal(event)
@@ -161,7 +164,7 @@ func (app *App) recordClick(code, country string) {
 		err = retry(wait, func() error {
 			_, _, err := app.producer.SendMessage(&sarama.ProducerMessage{
 				Topic: app.cfg.KafkaTopic,
-				Key:   sarama.StringEncoder(code),
+				Key:   sarama.StringEncoder(string(code)),
 				Value: sarama.ByteEncoder(payload),
 			})
 			return err
@@ -172,20 +175,20 @@ func (app *App) recordClick(code, country string) {
 	}()
 }
 
-func cacheKey(code string) string {
-	return cacheKeyPrefix + code
+func cacheKey(code ShortCode) string {
+	return cacheKeyPrefix + string(code)
 }
 
-func (app *App) cacheLink(r *http.Request, code, longURL string) {
+func (app *App) cacheLink(r *http.Request, code ShortCode, longURL string) {
 	if err := app.cache.Set(r.Context(), cacheKey(code), longURL, cacheTTL).Err(); err != nil {
 		log.Printf("cachear link %s: %v", code, err)
 	}
 }
 
-func (app *App) shortenResponse(code, longURL string) shortenResponse {
+func (app *App) shortenResponse(code ShortCode, longURL string) shortenResponse {
 	return shortenResponse{
 		Code:     code,
-		ShortURL: strings.TrimRight(app.cfg.BaseURL, "/") + "/" + code,
+		ShortURL: strings.TrimRight(app.cfg.BaseURL, "/") + "/" + string(code),
 		LongURL:  longURL,
 	}
 }
@@ -208,7 +211,7 @@ func normalizeURL(raw string) (string, error) {
 	return parsed.String(), nil
 }
 
-func validCode(code string) bool {
+func validCode(code ShortCode) bool {
 	if len(code) == 0 || len(code) > 32 {
 		return false
 	}

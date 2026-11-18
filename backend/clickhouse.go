@@ -25,7 +25,7 @@ type ClickHouse struct {
 }
 
 type ClickEvent struct {
-	Code      string    `json:"code"`
+	Code      ShortCode `json:"code"`
 	Country   string    `json:"country"`
 	ClickedAt time.Time `json:"clicked_at"`
 }
@@ -41,7 +41,7 @@ type DayStat struct {
 }
 
 type StatsResponse struct {
-	Code      string        `json:"code"`
+	Code      ShortCode     `json:"code"`
 	Total     uint64        `json:"total"`
 	ByCountry []CountryStat `json:"by_country"`
 	ByDay     []DayStat     `json:"by_day"`
@@ -77,7 +77,7 @@ func (ch *ClickHouse) InsertClick(ctx context.Context, event ClickEvent) error {
 	query := `INSERT INTO analytics.clicks (code, country, clicked_at)
 		VALUES ({code:String}, {country:String}, toDateTime64({ts:String}, 3, 'UTC'))`
 	params := map[string]string{
-		"code":    event.Code,
+		"code":    string(event.Code),
 		"country": event.Country,
 		"ts":      event.ClickedAt.UTC().Format("2006-01-02 15:04:05.000"),
 	}
@@ -95,7 +95,7 @@ func (ch *ClickHouse) InsertClick(ctx context.Context, event ClickEvent) error {
 	})
 }
 
-func (ch *ClickHouse) Stats(ctx context.Context, code string) (StatsResponse, error) {
+func (ch *ClickHouse) Stats(ctx context.Context, code ShortCode) (StatsResponse, error) {
 	result := StatsResponse{
 		Code:      code,
 		ByCountry: []CountryStat{},
@@ -108,7 +108,7 @@ func (ch *ClickHouse) Stats(ctx context.Context, code string) (StatsResponse, er
 		} `json:"data"`
 	}
 	query := `SELECT count() AS total FROM analytics.clicks WHERE code = {code:String} FORMAT JSON`
-	if err := ch.exec(ctx, query, map[string]string{"code": code}, &total); err != nil {
+	if err := ch.exec(ctx, query, map[string]string{"code": string(code)}, &total); err != nil {
 		return result, fmt.Errorf("total de clicks: %w", err)
 	}
 	if len(total.Data) > 0 {
@@ -124,7 +124,7 @@ func (ch *ClickHouse) Stats(ctx context.Context, code string) (StatsResponse, er
 		GROUP BY country
 		ORDER BY clicks DESC
 		FORMAT JSON`
-	if err := ch.exec(ctx, query, map[string]string{"code": code}, &countries); err != nil {
+	if err := ch.exec(ctx, query, map[string]string{"code": string(code)}, &countries); err != nil {
 		return result, fmt.Errorf("clicks por país: %w", err)
 	}
 	result.ByCountry = countries.Data
@@ -138,7 +138,7 @@ func (ch *ClickHouse) Stats(ctx context.Context, code string) (StatsResponse, er
 		GROUP BY day
 		ORDER BY day
 		FORMAT JSON`
-	if err := ch.exec(ctx, query, map[string]string{"code": code}, &days); err != nil {
+	if err := ch.exec(ctx, query, map[string]string{"code": string(code)}, &days); err != nil {
 		return result, fmt.Errorf("clicks por día: %w", err)
 	}
 	result.ByDay = days.Data
