@@ -54,6 +54,10 @@ func (g *Generator) NextID() (int64, error) {
 		now = g.now()
 	}
 
+	if now > maxTimestamp {
+		return 0, fmt.Errorf("timestamp %d excede los 41 bits", now)
+	}
+
 	if now == g.lastTimestamp {
 		g.sequence++
 		if g.sequence > sequenceMask {
@@ -69,8 +73,5 @@ func (g *Generator) NextID() (int64, error) {
 	}
 	g.lastTimestamp = now
 
-	if now > maxTimestamp {
-		return 0, fmt.Errorf("timestamp %d excede los 41 bits", now)
-	}
 	return now<<timestampShift | g.workerID<<workerIDShift | g.sequence, nil
 }

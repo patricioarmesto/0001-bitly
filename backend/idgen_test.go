@@ -144,6 +144,28 @@ func TestGeneratorSigueEsperandoSiElRelojSigueAtrasado(t *testing.T) {
 	}
 }
 
+func TestGeneratorRejectsOutOfRangeTimestampWithoutCorruptingState(t *testing.T) {
+	current := int64(1000)
+	generator := NewGenerator(0)
+	generator.now = func() int64 { return current }
+	generator.sleep = func(d time.Duration) { current += int64(d / time.Millisecond) }
+
+	current = maxTimestamp + 1
+	if _, err := generator.NextID(); err == nil {
+		t.Fatal("esperaba error por timestamp de 42 bits")
+	}
+
+	current = 1000
+	id, err := generator.NextID()
+	if err != nil {
+		t.Fatalf("el generador quedó en estado inválido: %v", err)
+	}
+	timestampMS, _, sequence := splitSnowflake(id)
+	if timestampMS != 1000 || sequence != 0 {
+		t.Errorf("estado = (%d, %d), esperaba (1000, 0)", timestampMS, sequence)
+	}
+}
+
 func TestGeneratorIdsCrecientesConRelojReal(t *testing.T) {
 	generator := NewGenerator(0)
 	var previous int64
