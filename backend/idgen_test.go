@@ -114,6 +114,36 @@ func TestGeneratorEsperaSiElRelojVaParaAtras(t *testing.T) {
 	}
 }
 
+func TestGeneratorSigueEsperandoSiElRelojSigueAtrasado(t *testing.T) {
+	current := int64(5000)
+	generator := NewGenerator(3)
+	generator.now = func() int64 { return current }
+	waits := 0
+	generator.sleep = func(d time.Duration) {
+		waits++
+		if waits > 1 {
+			current += int64(d / time.Millisecond)
+		}
+	}
+
+	first, err := generator.NextID()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	current = 4998 // el reloj retrocede y no se recupera en el primer sleep
+	second, err := generator.NextID()
+	if err != nil {
+		t.Fatalf("el generador desistió antes de recuperar el reloj: %v", err)
+	}
+	if second <= first {
+		t.Fatalf("id duplicado o decreciente: %d, %d", first, second)
+	}
+	if waits < 2 {
+		t.Errorf("esperó %d veces, esperaba al menos 2", waits)
+	}
+}
+
 func TestGeneratorIdsCrecientesConRelojReal(t *testing.T) {
 	generator := NewGenerator(0)
 	var previous int64

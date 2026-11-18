@@ -47,14 +47,11 @@ func (g *Generator) NextID() (int64, error) {
 	defer g.mu.Unlock()
 
 	now := g.now()
-	if now < g.lastTimestamp {
+	for now < g.lastTimestamp {
 		// El reloj retrocedió: esperar a alcanzar el último timestamp para
 		// no volver a emitir los mismos IDs.
 		g.sleep(time.Duration(g.lastTimestamp-now) * time.Millisecond)
 		now = g.now()
-		if now < g.lastTimestamp {
-			return 0, fmt.Errorf("reloj atrasado: esperaba %d, obtuve %d", g.lastTimestamp, now)
-		}
 	}
 
 	if now == g.lastTimestamp {
