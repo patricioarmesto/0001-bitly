@@ -1,0 +1,271 @@
+package main
+
+import (
+	"crypto/rand"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"log"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/IBM/sarama"
+	"github.com/redis/go-redis/v9"
+)
+
+const (
+	alphabet   = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	codeLength = 7
+	cacheTTL   = time.Hour
+)
+
+type shortenRequest struct {
+	URL string `json:"url"`
+}
+
+type shortenResponse struct {
+	Code     string `json:"code"`
+	ShortURL string `json:"short_url"`
+	LongURL  string `json:"long_url"`
+}
+
+func (app *App) routes() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/shorten", app.handleShorten)
+	mux.HandleFunc("GET /api/stats/{code}", app.handleStats)
+	mux.HandleFunc("GET /health", app.handleHealth)
+	mux.HandleFunc("/", app.handleRedirect)
+	return withCORS(mux)
+}
+
+// El frontend corre en otro puerto durante el desarrollo, así que el browser
+// hace preflight antes del POST. CORS abierto alcanza para este prototipo local.
+func withCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (app *App) handleShorten(w http.ResponseWriter, r *http.Request) {
+	var request shortenRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "JSON inválido")
+		return
+	}
+
+	longURL, err := normalizeURL(request.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	var existingCode string
+	err = app.db.QueryRowContext(r.Context(), "SELECT code FROM links WHERE long_url = $1 ORDER BY created_at LIMIT 1", longURL).Scan(&existingCode)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("buscar link existente: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudo buscar el link")
+		return
+	}
+	if existingCode != "" {
+		app.cacheLink(r, existingCode, longURL)
+		writeJSON(w, http.StatusOK, app.shortenResponse(existingCode, longURL))
+		return
+	}
+
+	for attempt := 0; attempt < 5; attempt++ {
+		code, err := generateCode(codeLength)
+		if err != nil {
+			log.Printf("generar código: %v", err)
+			writeError(w, http.StatusInternalServerError, "no se pudo generar el código")
+			return
+		}
+
+		_, err = app.db.ExecContext(r.Context(), "INSERT INTO links (code, long_url) VALUES ($1, $2) ON CONFLICT (code) DO NOTHING", code, longURL)
+		if err != nil {
+			log.Printf("guardar link: %v", err)
+			writeError(w, http.StatusInternalServerError, "no se pudo guardar el link")
+			return
+		}
+
+		// ON CONFLICT DO NOTHING: si el código ya existía, el insert no afectó filas y probamos otro.
+		var rows int64
+		if err := app.db.QueryRowContext(r.Context(), "SELECT count(*) FROM links WHERE code = $1 AND long_url = $2", code, longURL).Scan(&rows); err != nil {
+			log.Printf("verificar código: %v", err)
+			writeError(w, http.StatusInternalServerError, "no se pudo verificar el código")
+			return
+		}
+		if rows == 0 {
+			continue
+		}
+
+		app.cacheLink(r, code, longURL)
+		writeJSON(w, http.StatusOK, app.shortenResponse(code, longURL))
+		return
+	}
+
+	writeError(w, http.StatusInternalServerError, "no se pudo asignar un código único")
+}
+
+func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
+	code := strings.TrimPrefix(r.URL.Path, "/")
+	if code == "" || !validCode(code) {
+		http.NotFound(w, r)
+		return
+	}
+
+	cacheKey := "link:" + code
+	longURL, err := app.cache.Get(r.Context(), cacheKey).Result()
+	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			log.Printf("leer caché %s: %v", cacheKey, err)
+		}
+		err = app.db.QueryRowContext(r.Context(), "SELECT long_url FROM links WHERE code = $1", code).Scan(&longURL)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		if err != nil {
+			log.Printf("buscar link %s: %v", code, err)
+			writeError(w, http.StatusInternalServerError, "no se pudo resolver el link")
+			return
+		}
+		app.cacheLink(r, code, longURL)
+	}
+
+	app.recordClick(code, countryFrom(r))
+	http.Redirect(w, r, longURL, http.StatusFound)
+}
+
+func (app *App) handleStats(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if !validCode(code) {
+		writeError(w, http.StatusBadRequest, "código inválido")
+		return
+	}
+
+	stats, err := app.clickhouse.Stats(r.Context(), code)
+	if err != nil {
+		log.Printf("stats %s: %v", code, err)
+		writeError(w, http.StatusInternalServerError, "no se pudieron leer las estadísticas")
+		return
+	}
+	writeJSON(w, http.StatusOK, stats)
+}
+
+func (app *App) handleHealth(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (app *App) recordClick(code, country string) {
+	go func() {
+		event := ClickEvent{Code: code, Country: country, ClickedAt: time.Now().UTC()}
+		payload, err := json.Marshal(event)
+		if err != nil {
+			log.Printf("serializar click: %v", err)
+			return
+		}
+
+		var lastErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(100<<attempt) * time.Millisecond)
+			}
+			_, _, err := app.producer.SendMessage(&sarama.ProducerMessage{
+				Topic: app.cfg.KafkaTopic,
+				Key:   sarama.StringEncoder(code),
+				Value: sarama.ByteEncoder(payload),
+			})
+			if err == nil {
+				return
+			}
+			lastErr = err
+		}
+		log.Printf("no se pudo publicar el click de %s: %v", code, lastErr)
+	}()
+}
+
+func (app *App) cacheLink(r *http.Request, code, longURL string) {
+	if err := app.cache.Set(r.Context(), "link:"+code, longURL, cacheTTL).Err(); err != nil {
+		log.Printf("cachear link %s: %v", code, err)
+	}
+}
+
+func (app *App) shortenResponse(code, longURL string) shortenResponse {
+	return shortenResponse{
+		Code:     code,
+		ShortURL: strings.TrimRight(app.cfg.BaseURL, "/") + "/" + code,
+		LongURL:  longURL,
+	}
+}
+
+func normalizeURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("la URL no puede estar vacía")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", errors.New("URL inválida")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("la URL debe usar http o https")
+	}
+	if parsed.Host == "" {
+		return "", errors.New("la URL debe tener un host")
+	}
+	return parsed.String(), nil
+}
+
+func validCode(code string) bool {
+	if len(code) == 0 || len(code) > 32 {
+		return false
+	}
+	for _, char := range code {
+		if !strings.ContainsRune(alphabet, char) {
+			return false
+		}
+	}
+	return true
+}
+
+func generateCode(length int) (string, error) {
+	buffer := make([]byte, length)
+	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	for i, b := range buffer {
+		buffer[i] = alphabet[int(b)%len(alphabet)]
+	}
+	return string(buffer), nil
+}
+
+func countryFrom(r *http.Request) string {
+	for _, header := range []string{"CF-IPCountry", "X-Country"} {
+		if value := strings.TrimSpace(r.Header.Get(header)); value != "" {
+			return strings.ToUpper(value)
+		}
+	}
+	return "XX"
+}
+
+func writeJSON(w http.ResponseWriter, status int, payload any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(payload); err != nil {
+		log.Printf("escribir respuesta: %v", err)
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
