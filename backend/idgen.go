@@ -54,24 +54,28 @@ func (g *Generator) NextID() (int64, error) {
 		now = g.now()
 	}
 
-	if now > maxTimestamp {
-		return 0, fmt.Errorf("timestamp %d excede los 41 bits", now)
-	}
-
+	sequence := g.sequence
 	if now == g.lastTimestamp {
-		g.sequence++
-		if g.sequence > sequenceMask {
+		sequence++
+		if sequence > sequenceMask {
 			// Se llenaron los 4096 valores del milisegundo: esperar al siguiente.
 			for now <= g.lastTimestamp {
 				g.sleep(time.Millisecond)
 				now = g.now()
 			}
-			g.sequence = 0
+			sequence = 0
 		}
 	} else {
-		g.sequence = 0
+		sequence = 0
 	}
+
+	// Validar después de esperar: el reloj puede cruzar el límite durante la espera.
+	if now > maxTimestamp {
+		return 0, fmt.Errorf("timestamp %d excede los 41 bits", now)
+	}
+
 	g.lastTimestamp = now
+	g.sequence = sequence
 
 	return now<<timestampShift | g.workerID<<workerIDShift | g.sequence, nil
 }

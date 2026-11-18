@@ -166,6 +166,23 @@ func TestGeneratorRejectsOutOfRangeTimestampWithoutCorruptingState(t *testing.T)
 	}
 }
 
+func TestGeneratorRejectsTimestampOverflowAfterSequenceWait(t *testing.T) {
+	current := maxTimestamp - 1
+	generator := NewGenerator(0)
+	generator.now = func() int64 { return current }
+	generator.sleep = func(d time.Duration) { current += 2 * int64(d/time.Millisecond) }
+
+	for i := 0; i <= int(sequenceMask); i++ {
+		if _, err := generator.NextID(); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := generator.NextID(); err == nil {
+		t.Fatal("esperaba error por timestamp de 42 bits tras desbordar la secuencia")
+	}
+}
+
 func TestGeneratorIDsIncreaseWithRealClock(t *testing.T) {
 	generator := NewGenerator(0)
 	var previous int64
