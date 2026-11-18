@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react'
+import { requestJSON } from './api'
 import StatsPanel from './components/StatsPanel'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
@@ -23,18 +24,15 @@ export default function App() {
     setLoading(true)
 
     try {
-      const response = await fetch(`${API_URL}/api/shorten`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      })
-
-      if (!response.ok) {
-        const body = (await response.json()) as { error?: string }
-        throw new Error(body.error ?? 'No se pudo acortar la URL')
-      }
-
-      const created = (await response.json()) as ShortLink
+      const created = await requestJSON<ShortLink>(
+        `${API_URL}/api/shorten`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        },
+        'No se pudo acortar la URL',
+      )
       setLinks((current) => [created, ...current.filter((link) => link.code !== created.code)])
       setUrl('')
     } catch (err) {

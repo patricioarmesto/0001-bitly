@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { requestJSON } from '../api'
 
 export interface CountryStat {
   country: string
@@ -33,13 +34,11 @@ export default function StatsPanel({ apiUrl, code, shortUrl, onClose }: StatsPan
     setStats(null)
     setError('')
 
-    fetch(`${apiUrl}/api/stats/${encodeURIComponent(code)}`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error('No se pudieron cargar las estadísticas')
-        }
-        return (await response.json()) as Stats
-      })
+    requestJSON<Stats>(
+      `${apiUrl}/api/stats/${encodeURIComponent(code)}`,
+      { signal: controller.signal },
+      'No se pudieron cargar las estadísticas',
+    )
       .then(setStats)
       .catch((err: Error) => {
         if (err.name !== 'AbortError') {
