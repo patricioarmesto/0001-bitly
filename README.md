@@ -98,6 +98,18 @@ docker compose down -v
 
 El backend crea las tablas de Postgres y ClickHouse al arrancar (`CREATE TABLE IF NOT EXISTS`), y Kafka tiene la creación automática de topics habilitada. No hay pasos manuales ni migraciones: esta es la primera versión de la app, así que el esquema es directamente `short_code`, `long_url` y `created_at`. En local el `WORKER_ID` es `0`; para correr otro servidor, pasale `WORKER_ID=1` (o el que corresponda) con un valor distinto.
 
+### Tests end to end
+
+Playwright recorre el flujo desde el browser: acortar una URL, seguir el `302`, esperar a que el consumer escriba el click en ClickHouse y verlo en el panel. Levanta el stack si no está corriendo (o lo reutiliza si ya está arriba).
+
+```bash
+cd frontend
+npx playwright install chromium   # una sola vez
+npm run test:e2e
+```
+
+El reporte HTML queda en `frontend/playwright-report/` y se abre con `npx playwright show-report`; los traces de los tests que fallan quedan en `frontend/test-results/`.
+
 ## API
 
 ### Acortar una URL
@@ -168,6 +180,7 @@ Este es un **ejercicio con alcance deliberado, no un sistema de producción**. E
 - El país se lee de headers en lugar de resolverse con GeoIP.
 - Redis y ClickHouse se inicializan con `IF NOT EXISTS` desde el backend; no hay pipeline de migraciones.
 - El backend habilita CORS abierto porque el frontend corre en otro puerto durante el desarrollo; en producción se restringiría al origen del frontend.
+- El test end to end es Playwright contra Compose; no hay tests de componentes ni del browser con mocks.
 
 Las decisiones estructurales están registradas como ADRs en [`docs/adr/`](docs/adr/).
 
@@ -194,8 +207,11 @@ Cada punto siguiente es una decisión de diseño explícita para este ejercicio,
 │   ├── clickhouse.go    # queries HTTP y writer de eventos
 │   └── go.mod
 ├── frontend/
+│   ├── e2e/
+│   │   └── flow.spec.ts
 │   ├── index.html
 │   ├── package.json
+│   ├── playwright.config.ts
 │   ├── vite.config.ts
 │   ├── tsconfig.json
 │   └── src/
@@ -208,7 +224,10 @@ Cada punto siguiente es una decisión de diseño explícita para este ejercicio,
         ├── 0002-postgres-como-fuente-de-verdad-y-redis-como-cache.md
         ├── 0003-kafka-para-eventos-de-click.md
         ├── 0004-clickhouse-por-http.md
-        └── 0005-pais-desde-headers.md
+        ├── 0005-pais-desde-headers.md
+        ├── 0006-frontend-react-vite-typescript.md
+        ├── 0007-librerias-backend.md
+        └── 0008-playwright-e2e.md
 ```
 
 ## Objetivos no funcionales declarados

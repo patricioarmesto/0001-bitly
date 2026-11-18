@@ -7,11 +7,12 @@ Acortador de URLs de ejercicio: el valor está en que el recorrido de la request
 - Stack: `docker compose up`; esperá `curl http://localhost:8080/health` antes de probar el frontend en `:5173`.
 - Backend: desde `backend/`, `gofmt -l .`, `go test ./...`, `go vet ./...` y `go build ./...`. Terminá el trabajo solo con los cuatro limpios.
 - Frontend: desde `frontend/`, `npm run build` (incluye `tsc --noEmit`). El dev server lo levanta Compose con `VITE_API_URL=http://localhost:8080`.
+- E2E: desde `frontend/`, `npm run test:e2e`; Playwright levanta Compose con `--wait` si el stack no está corriendo.
 - Para tests de IDs, inyectá `now` y `sleep` en `Generator` (`backend/idgen_test.go`); los tests del handler usan `sqlmock` para verificar el `INSERT`.
 
 ## Convenciones
 
-- Español rioplatense en docs, comentarios y mensajes de usuario; tono directo. Inglés en los nombres de los tests y en los mensajes de commits.
+- Español rioplatense en docs, comentarios y mensajes de usuario; tono directo. Inglés en los nombres de archivo y de los tests (incluidos los E2E) y en los mensajes de commits.
 - Commits `tipo(scope): descripción` en minúsculas, con scope `backend`, `frontend`, `docker` o `docs`. Commitear y pushear solo cuando el usuario lo pida.
 - Preferí código directo y pocas abstracciones: si una opción hace el ejemplo más corto y más visible, gana. Una dependencia nueva necesita una razón que quede registrada en el ADR correspondiente.
 - `WORKER_ID`, `worker` y `servidor` son los nombres del identificador de servidor, en código y en docs.
