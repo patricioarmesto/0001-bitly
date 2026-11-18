@@ -79,23 +79,17 @@ func (ch *ClickHouse) InsertClick(ctx context.Context, event ClickEvent) error {
 		"ts":      event.ClickedAt.UTC().Format("2006-01-02 15:04:05.000"),
 	}
 
-	var lastErr error
-	for attempt := 0; attempt < 3; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(100<<attempt) * time.Millisecond
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(delay):
-			}
-		}
-		if err := ch.exec(ctx, query, params, nil); err == nil {
+	wait := func(d time.Duration) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(d):
 			return nil
-		} else {
-			lastErr = err
 		}
 	}
-	return lastErr
+	return retry(wait, func() error {
+		return ch.exec(ctx, query, params, nil)
+	})
 }
 
 func (ch *ClickHouse) Stats(ctx context.Context, code string) (StatsResponse, error) {

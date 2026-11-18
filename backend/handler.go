@@ -156,22 +156,18 @@ func (app *App) recordClick(code, country string) {
 			return
 		}
 
-		var lastErr error
-		for attempt := 0; attempt < 3; attempt++ {
-			if attempt > 0 {
-				time.Sleep(time.Duration(100<<attempt) * time.Millisecond)
-			}
+		wait := func(d time.Duration) error { time.Sleep(d); return nil }
+		err = retry(wait, func() error {
 			_, _, err := app.producer.SendMessage(&sarama.ProducerMessage{
 				Topic: app.cfg.KafkaTopic,
 				Key:   sarama.StringEncoder(code),
 				Value: sarama.ByteEncoder(payload),
 			})
-			if err == nil {
-				return
-			}
-			lastErr = err
+			return err
+		})
+		if err != nil {
+			log.Printf("no se pudo publicar el click de %s: %v", code, err)
 		}
-		log.Printf("no se pudo publicar el click de %s: %v", code, lastErr)
 	}()
 }
 
