@@ -111,13 +111,12 @@ curl -X POST http://localhost:8080/api/shorten \
 ```json
 {
   "code": "jzgKpHNqNO",
-  "short": "http://localhost:8080/jzgKpHNqNO",
   "short_url": "http://localhost:8080/jzgKpHNqNO",
   "long_url": "https://example.com/un/camino/bastante/largo"
 }
 ```
 
-`code` es la key base62, `short` es el link corto completo y `short_url` se mantiene por compatibilidad con el frontend. Cada POST genera un ID Snowflake nuevo, así que la misma URL puede tener varias keys.
+`code` es la key base62 y `short_url` es el link corto completo. Cada POST genera un ID Snowflake nuevo, así que la misma URL puede tener varias keys.
 
 ### Redirigir
 

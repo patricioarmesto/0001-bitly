@@ -37,7 +37,6 @@ type shortenRequest struct {
 
 type shortenResponse struct {
 	Code     string `json:"code"`
-	Short    string `json:"short"`
 	ShortURL string `json:"short_url"`
 	LongURL  string `json:"long_url"`
 }
@@ -183,11 +182,9 @@ func (app *App) cacheLink(r *http.Request, code, longURL string) {
 }
 
 func (app *App) shortenResponse(code, longURL string) shortenResponse {
-	short := strings.TrimRight(app.cfg.BaseURL, "/") + "/" + code
 	return shortenResponse{
 		Code:     code,
-		Short:    short,
-		ShortURL: short,
+		ShortURL: strings.TrimRight(app.cfg.BaseURL, "/") + "/" + code,
 		LongURL:  longURL,
 	}
 }
