@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { requestJSON } from '../api'
+import BarList from './BarList'
 
 export interface CountryStat {
   country: string
@@ -75,33 +76,17 @@ export default function StatsPanel({ apiUrl, code, shortUrl, onClose }: StatsPan
             <span className="total-label">clicks registrados</span>
           </div>
 
-          <section>
-            <h3>Por país</h3>
-            {stats.by_country.length === 0 && <p className="muted">Todavía no hay clicks.</p>}
-            {stats.by_country.map((item) => (
-              <div className="bar-row" key={item.country}>
-                <span className="bar-label">{item.country}</span>
-                <div className="bar-track">
-                  <div className="bar-fill" style={{ width: `${(item.clicks / maxCountry) * 100}%` }} />
-                </div>
-                <span className="bar-value">{item.clicks}</span>
-              </div>
-            ))}
-          </section>
+          <BarList
+            title="Por país"
+            items={stats.by_country.map((item) => ({ label: item.country, clicks: item.clicks }))}
+            max={maxCountry}
+          />
 
-          <section>
-            <h3>Por día</h3>
-            {stats.by_day.length === 0 && <p className="muted">Todavía no hay clicks.</p>}
-            {stats.by_day.map((item) => (
-              <div className="bar-row" key={item.day}>
-                <span className="bar-label">{item.day}</span>
-                <div className="bar-track">
-                  <div className="bar-fill" style={{ width: `${(item.clicks / maxDay) * 100}%` }} />
-                </div>
-                <span className="bar-value">{item.clicks}</span>
-              </div>
-            ))}
-          </section>
+          <BarList
+            title="Por día"
+            items={stats.by_day.map((item) => ({ label: item.day, clicks: item.clicks }))}
+            max={maxDay}
+          />
 
           <p className="footnote">
             Los eventos llegan a Kafka y los escribe un consumer en ClickHouse. Puede pasar un instante
