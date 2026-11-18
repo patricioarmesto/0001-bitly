@@ -3,6 +3,7 @@ module github.com/como-funciona/0001-bitly/backend
 go 1.23
 
 require (
+	github.com/DATA-DOG/go-sqlmock v1.5.2
 	github.com/IBM/sarama v1.43.2
 	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.7.0

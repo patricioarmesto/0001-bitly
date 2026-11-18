@@ -89,6 +89,7 @@ services:
       CLICKHOUSE_USER: "default"
       CLICKHOUSE_PASSWORD: "clickhouse"
       BASE_URL: "http://localhost:8080"
+      WORKER_ID: "${WORKER_ID:-0}"
     ports:
       - "8080:8080"
     depends_on:

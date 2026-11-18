@@ -2,7 +2,7 @@
 
 Ejercicio 0001 de 1024 del curso **¿Cómo funciona...?**. Un ejercicio por semana, en español, con un prototipo funcional que se levanta con una sola orden.
 
-¿Qué pasa entre que pegás una URL larga y aparece un `bit.ly/3xYz`? Este prototipo recorre ese camino completo: genera el código, guarda el link, redirige desde caché y registra cada click para poder responder después cuántos hubo, de dónde vinieron y en qué día.
+¿Qué pasa entre que pegás una URL larga y aparece un `bit.ly/jzgKpHNqNO`? Este prototipo recorre ese camino completo: genera un ID Snowflake con timestamp, `worker_id` y secuencia en memoria, lo convierte en base62, guarda el link, redirige desde caché y registra cada click para poder responder después cuántos hubo, de dónde vinieron y en qué día.
 
 ## Stack
 
@@ -10,8 +10,8 @@ Ejercicio 0001 de 1024 del curso **¿Cómo funciona...?**. Un ejercicio por sema
 | --- | --- | --- |
 | Frontend | React + Vite | Cargar URLs, copiar links cortos, ver estadísticas |
 | Backend | Go | API HTTP, generación de códigos, redirect, consumer |
-| Persistencia | Postgres | Tabla de links (código → URL original) |
-| Caché | Redis | Resolución de códigos calientes para redirect |
+| Persistencia | Postgres | Tabla de links (`short_code`, URL original, `created_at`) |
+| Caché | Redis | Resolución de keys calientes para redirect |
 | Eventos | Kafka | Cola de eventos de click |
 | Analíticas | ClickHouse | Agregaciones de clicks por país y por día |
 | Infra | Docker Compose | Orquestación local de todos los servicios |
@@ -31,8 +31,8 @@ flowchart LR
     end
 
     subgraph Storage
-        PG[(Postgres<br/>links: code, long_url)]
-        R[(Redis<br/>link:code · TTL 1h)]
+        PG[(Postgres<br/>links: short_code, long_url, created_at)]
+        R[(Redis<br/>link:key · TTL 1h)]
         K[[Kafka<br/>topic: clicks]]
         CH[(ClickHouse<br/>analytics.clicks)]
     end
@@ -49,7 +49,31 @@ flowchart LR
     Go -->|agregaciones por país y día| CH
 ```
 
-Las líneas punteadas son publicaciones asíncronas: el redirect no espera a Kafka ni a ClickHouse. El camino caliente es `GET /:code` → Redis → `302`; ante un miss se consulta Postgres y se repuebla la caché. La persistencia del click la hace el consumer, en otro goroutine.
+Las líneas punteadas son publicaciones asíncronas: el redirect no espera a Kafka ni a ClickHouse. El camino caliente es `GET /:key` → Redis → `302`; ante un miss se consulta Postgres por `short_code` y se repuebla la caché. La persistencia del click la hace el consumer, en otro goroutine.
+
+### Cómo se genera la key
+
+No hay números aleatorios ni hash: la key es un ID Snowflake de 63 bits escrito en base62. El `Generator` de `backend/idgen.go` arma el entero con un mutex; Postgres no interviene en la generación.
+
+```text
+[ timestamp 41 bits | worker_id 10 bits | secuencia 12 bits ]
+compositeID = (timestamp << 22) | (worker_id << 12) | secuencia
+key = encodeBase62(compositeID)
+```
+
+1. `timestamp = time.Now().UnixMilli() - 1704067200000` → milisegundos desde el epoch `2024-01-01T00:00:00Z`. Cabe en 41 bits.
+2. `worker_id`: viene de la env var `WORKER_ID` (0 a 1023, en local `0`). Cada servidor tiene el suyo y nunca se repite.
+3. `secuencia`: contador en memoria de 0 a 4095. Se resetea a 0 en cada milisegundo nuevo; si se llena dentro del mismo ms, el generador espera al siguiente.
+4. Ejemplo con `timestamp = 63158400123`, `worker_id = 0` y `secuencia = 0`: `compositeID = 264905530269499392` → `key = "jzgKpHNqNO"`.
+5. `INSERT INTO links (short_code, long_url) VALUES ('jzgKpHNqNO', ...)`. Esa string es la key: `http://localhost:8080/jzgKpHNqNO`.
+
+Si el reloj retrocede, el generador espera a alcanzar el último timestamp usado antes de seguir, para no emitir IDs duplicados. En el redirect se busca directamente `WHERE short_code = <key>`: la key ya identifica al link, no hace falta descomponerla.
+
+### Por qué la key es compuesta
+
+- **No es predecible**: no arranca en 1 ni sigue una secuencia global visible; arranca con el milisegundo actual desde 2024.
+- **No necesita secuencia central**: la secuencia vive en memoria del proceso y se reinicia cada milisegundo. La unicidad entre servidores viene del `worker_id`, que es distinto en cada uno, así que no hay colisiones al agregar más.
+- **Queda ordenada por tiempo**: como el timestamp ocupa los 41 bits altos, ordenar los IDs (y sus keys base62) orderifica los links por fecha de creación.
 
 ## Cómo correrlo
 
@@ -72,7 +96,7 @@ Para bajar todo, incluidos los volúmenes:
 docker compose down -v
 ```
 
-El backend crea las tablas de Postgres y ClickHouse al arrancar (`CREATE TABLE IF NOT EXISTS`), y Kafka tiene la creación automática de topics habilitada. No hay scripts de migración ni pasos manuales.
+El backend crea las tablas de Postgres y ClickHouse al arrancar (`CREATE TABLE IF NOT EXISTS`), y Kafka tiene la creación automática de topics habilitada. No hay pasos manuales ni migraciones: esta es la primera versión de la app, así que el esquema es directamente `short_code`, `long_url` y `created_at`. En local el `WORKER_ID` es `0`; para correr otro servidor, pasale `WORKER_ID=1` (o el que corresponda) con un valor distinto.
 
 ## API
 
@@ -86,18 +110,19 @@ curl -X POST http://localhost:8080/api/shorten \
 
 ```json
 {
-  "code": "3xYzK7m",
-  "short_url": "http://localhost:8080/3xYzK7m",
+  "code": "jzgKpHNqNO",
+  "short": "http://localhost:8080/jzgKpHNqNO",
+  "short_url": "http://localhost:8080/jzgKpHNqNO",
   "long_url": "https://example.com/un/camino/bastante/largo"
 }
 ```
 
-Si la misma URL ya fue acortada, devuelve el código existente.
+`code` es la key base62, `short` es el link corto completo y `short_url` se mantiene por compatibilidad con el frontend. Cada POST genera un ID Snowflake nuevo, así que la misma URL puede tener varias keys.
 
 ### Redirigir
 
 ```bash
-curl -i http://localhost:8080/3xYzK7m
+curl -i http://localhost:8080/jzgKpHNqNO
 # HTTP/1.1 302 Found
 # Location: https://example.com/un/camino/bastante/largo
 ```
@@ -107,12 +132,12 @@ El país del click se toma de las headers `CF-IPCountry` o `X-Country`; si no es
 ### Ver estadísticas
 
 ```bash
-curl http://localhost:8080/api/stats/3xYzK7m
+curl http://localhost:8080/api/stats/jzgKpHNqNO
 ```
 
 ```json
 {
-  "code": "3xYzK7m",
+  "code": "jzgKpHNqNO",
   "total": 42,
   "by_country": [
     { "country": "AR", "clicks": 30 },
@@ -137,7 +162,7 @@ Este es un **ejercicio con alcance deliberado, no un sistema de producción**. E
 
 **Las decisiones son intencionales para mantener el ejercicio legible.** Se prefirió un código directo, con pocas abstracciones y dependencias, antes que una arquitectura preparada para escalar. En particular:
 
-- El código corto se genera con bytes aleatorios codificados en base62, no con un servicio de IDs distribuido.
+- La key es un ID Snowflake (timestamp desde 2024, `worker_id` y secuencia en memoria) convertido a base62, sin aleatoriedad, hash ni UUID.
 - El redirect publica el evento directamente en Kafka, sin outbox ni transacciones coordinadas.
 - La entrega es at-least-once: un replay del consumer puede duplicar filas de click, y eso es aceptable para este contador.
 - ClickHouse se consulta por su interfaz HTTP con `net/http`, sin un cliente oficial, para que la query sea visible en el código.
@@ -180,7 +205,7 @@ Cada punto siguiente es una decisión de diseño explícita para este ejercicio,
 │       └── components/StatsPanel.tsx
 └── docs/
     └── adr/
-        ├── 0001-codigos-base62.md
+        ├── 0001-snowflake-base62.md
         ├── 0002-postgres-como-fuente-de-verdad-y-redis-como-cache.md
         ├── 0003-kafka-para-eventos-de-click.md
         ├── 0004-clickhouse-por-http.md

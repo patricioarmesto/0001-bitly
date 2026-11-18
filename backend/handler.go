@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -16,10 +15,29 @@ import (
 )
 
 const (
-	alphabet   = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	codeLength = 7
-	cacheTTL   = time.Hour
+	alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	cacheTTL = time.Hour
 )
+
+func encodeBase62(num uint64) string {
+	if num == 0 {
+		return "0"
+	}
+	var result string
+	for num > 0 {
+		result = string(alphabet[num%62]) + result
+		num = num / 62
+	}
+	return result
+}
+
+func decodeBase62(s string) uint64 {
+	var num uint64
+	for _, c := range s {
+		num = num*62 + uint64(strings.IndexRune(alphabet, c))
+	}
+	return num
+}
 
 type shortenRequest struct {
 	URL string `json:"url"`
@@ -27,6 +45,7 @@ type shortenRequest struct {
 
 type shortenResponse struct {
 	Code     string `json:"code"`
+	Short    string `json:"short"`
 	ShortURL string `json:"short_url"`
 	LongURL  string `json:"long_url"`
 }
@@ -69,51 +88,22 @@ func (app *App) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var existingCode string
-	err = app.db.QueryRowContext(r.Context(), "SELECT code FROM links WHERE long_url = $1 ORDER BY created_at LIMIT 1", longURL).Scan(&existingCode)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		log.Printf("buscar link existente: %v", err)
-		writeError(w, http.StatusInternalServerError, "no se pudo buscar el link")
-		return
-	}
-	if existingCode != "" {
-		app.cacheLink(r, existingCode, longURL)
-		writeJSON(w, http.StatusOK, app.shortenResponse(existingCode, longURL))
+	id, err := app.generator.NextID()
+	if err != nil {
+		log.Printf("generar id: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudo generar la key")
 		return
 	}
 
-	for attempt := 0; attempt < 5; attempt++ {
-		code, err := generateCode(codeLength)
-		if err != nil {
-			log.Printf("generar código: %v", err)
-			writeError(w, http.StatusInternalServerError, "no se pudo generar el código")
-			return
-		}
-
-		_, err = app.db.ExecContext(r.Context(), "INSERT INTO links (code, long_url) VALUES ($1, $2) ON CONFLICT (code) DO NOTHING", code, longURL)
-		if err != nil {
-			log.Printf("guardar link: %v", err)
-			writeError(w, http.StatusInternalServerError, "no se pudo guardar el link")
-			return
-		}
-
-		// ON CONFLICT DO NOTHING: si el código ya existía, el insert no afectó filas y probamos otro.
-		var rows int64
-		if err := app.db.QueryRowContext(r.Context(), "SELECT count(*) FROM links WHERE code = $1 AND long_url = $2", code, longURL).Scan(&rows); err != nil {
-			log.Printf("verificar código: %v", err)
-			writeError(w, http.StatusInternalServerError, "no se pudo verificar el código")
-			return
-		}
-		if rows == 0 {
-			continue
-		}
-
-		app.cacheLink(r, code, longURL)
-		writeJSON(w, http.StatusOK, app.shortenResponse(code, longURL))
+	key := encodeBase62(uint64(id))
+	if _, err := app.db.ExecContext(r.Context(), "INSERT INTO links (short_code, long_url) VALUES ($1, $2)", key, longURL); err != nil {
+		log.Printf("guardar link: %v", err)
+		writeError(w, http.StatusInternalServerError, "no se pudo guardar el link")
 		return
 	}
 
-	writeError(w, http.StatusInternalServerError, "no se pudo asignar un código único")
+	app.cacheLink(r, key, longURL)
+	writeJSON(w, http.StatusOK, app.shortenResponse(key, longURL))
 }
 
 func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +119,7 @@ func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		if !errors.Is(err, redis.Nil) {
 			log.Printf("leer caché %s: %v", cacheKey, err)
 		}
-		err = app.db.QueryRowContext(r.Context(), "SELECT long_url FROM links WHERE code = $1", code).Scan(&longURL)
+		err = app.db.QueryRowContext(r.Context(), "SELECT long_url FROM links WHERE short_code = $1", code).Scan(&longURL)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.NotFound(w, r)
 			return
@@ -201,9 +191,11 @@ func (app *App) cacheLink(r *http.Request, code, longURL string) {
 }
 
 func (app *App) shortenResponse(code, longURL string) shortenResponse {
+	short := strings.TrimRight(app.cfg.BaseURL, "/") + "/" + code
 	return shortenResponse{
 		Code:     code,
-		ShortURL: strings.TrimRight(app.cfg.BaseURL, "/") + "/" + code,
+		Short:    short,
+		ShortURL: short,
 		LongURL:  longURL,
 	}
 }
@@ -236,17 +228,6 @@ func validCode(code string) bool {
 		}
 	}
 	return true
-}
-
-func generateCode(length int) (string, error) {
-	buffer := make([]byte, length)
-	if _, err := rand.Read(buffer); err != nil {
-		return "", err
-	}
-	for i, b := range buffer {
-		buffer[i] = alphabet[int(b)%len(alphabet)]
-	}
-	return string(buffer), nil
 }
 
 func countryFrom(r *http.Request) string {

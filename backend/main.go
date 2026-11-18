@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,29 +21,51 @@ import (
 )
 
 type config struct {
-	Port          string
-	DatabaseURL   string
-	RedisAddr     string
-	KafkaBrokers  []string
-	KafkaTopic    string
+	Port               string
+	DatabaseURL        string
+	RedisAddr          string
+	KafkaBrokers       []string
+	KafkaTopic         string
 	ClickHouseURL      string
 	ClickHouseUser     string
 	ClickHousePassword string
 	BaseURL            string
+	WorkerID           int64
 }
 
 func loadConfig() config {
 	return config{
-		Port:          env("PORT", "8080"),
-		DatabaseURL:   env("DATABASE_URL", "postgres://bitly:bitly@localhost:5432/bitly?sslmode=disable"),
-		RedisAddr:     env("REDIS_ADDR", "localhost:6379"),
-		KafkaBrokers:  strings.Split(env("KAFKA_BROKERS", "localhost:9092"), ","),
-		KafkaTopic:    env("KAFKA_TOPIC", "clicks"),
+		Port:               env("PORT", "8080"),
+		DatabaseURL:        env("DATABASE_URL", "postgres://bitly:bitly@localhost:5432/bitly?sslmode=disable"),
+		RedisAddr:          env("REDIS_ADDR", "localhost:6379"),
+		KafkaBrokers:       strings.Split(env("KAFKA_BROKERS", "localhost:9092"), ","),
+		KafkaTopic:         env("KAFKA_TOPIC", "clicks"),
 		ClickHouseURL:      env("CLICKHOUSE_URL", "http://localhost:8123"),
 		ClickHouseUser:     env("CLICKHOUSE_USER", "default"),
 		ClickHousePassword: env("CLICKHOUSE_PASSWORD", ""),
 		BaseURL:            env("BASE_URL", "http://localhost:8080"),
+		WorkerID:           workerIDFromEnv(),
 	}
+}
+
+func workerIDFromEnv() int64 {
+	raw := env("WORKER_ID", "0")
+	workerID, err := parseWorkerID(raw)
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	return workerID
+}
+
+func parseWorkerID(raw string) (int64, error) {
+	value, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("WORKER_ID debe ser un entero, obtuve %q", raw)
+	}
+	if value < 0 || value > maxWorkerID {
+		return 0, fmt.Errorf("WORKER_ID debe estar entre 0 y %d, obtuve %d", maxWorkerID, value)
+	}
+	return value, nil
 }
 
 func env(key, fallback string) string {
@@ -58,6 +81,7 @@ type App struct {
 	cache      *redis.Client
 	producer   sarama.SyncProducer
 	clickhouse *ClickHouse
+	generator  *Generator
 }
 
 func main() {
@@ -89,7 +113,7 @@ func main() {
 		log.Fatalf("ClickHouse: %v", err)
 	}
 
-	app := &App{cfg: cfg, db: db, cache: cache, producer: producer, clickhouse: clickhouse}
+	app := &App{cfg: cfg, db: db, cache: cache, producer: producer, clickhouse: clickhouse, generator: NewGenerator(cfg.WorkerID)}
 
 	appCtx, cancelApp := context.WithCancel(context.Background())
 	defer cancelApp()
@@ -136,8 +160,8 @@ func initPostgres(ctx context.Context, dsn string) (*sql.DB, error) {
 
 	schema := `
 		CREATE TABLE IF NOT EXISTS links (
-			code      TEXT PRIMARY KEY,
-			long_url  TEXT NOT NULL,
+			short_code TEXT PRIMARY KEY,
+			long_url   TEXT NOT NULL,
 			created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 		);
 		CREATE INDEX IF NOT EXISTS idx_links_long_url ON links(long_url);
