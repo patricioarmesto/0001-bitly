@@ -31,14 +31,6 @@ func encodeBase62(num uint64) string {
 	return result
 }
 
-func decodeBase62(s string) uint64 {
-	var num uint64
-	for _, c := range s {
-		num = num*62 + uint64(strings.IndexRune(alphabet, c))
-	}
-	return num
-}
-
 type shortenRequest struct {
 	URL string `json:"url"`
 }

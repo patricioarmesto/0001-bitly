@@ -20,22 +20,3 @@ func TestEncodeBase62(t *testing.T) {
 		}
 	}
 }
-
-func TestDecodeBase62(t *testing.T) {
-	cases := []struct {
-		code string
-		want uint64
-	}{
-		{"0", 0},
-		{"Z", 61},
-		{"10", 62},
-		{"3d7", 12345},
-		{"jzgKpHNygg", 264905530269528064},
-	}
-
-	for _, test := range cases {
-		if got := decodeBase62(test.code); got != test.want {
-			t.Errorf("decodeBase62(%q) = %d, esperaba %d", test.code, got, test.want)
-		}
-	}
-}
