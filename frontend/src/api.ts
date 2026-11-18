@@ -1,3 +1,9 @@
+export interface ShortLink {
+  code: string
+  short_url: string
+  long_url: string
+}
+
 export async function requestJSON<T>(
   url: string,
   options: RequestInit = {},

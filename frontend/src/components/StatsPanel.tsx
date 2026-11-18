@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { requestJSON } from '../api'
+import { requestJSON, type ShortLink } from '../api'
 import BarList from './BarList'
 
 export interface CountryStat {
@@ -21,12 +21,11 @@ export interface Stats {
 
 interface StatsPanelProps {
   apiUrl: string
-  code: string
-  shortUrl: string
+  link: ShortLink
   onClose: () => void
 }
 
-export default function StatsPanel({ apiUrl, code, shortUrl, onClose }: StatsPanelProps) {
+export default function StatsPanel({ apiUrl, link, onClose }: StatsPanelProps) {
   const [stats, setStats] = useState<Stats | null>(null)
   const [error, setError] = useState('')
 
@@ -36,7 +35,7 @@ export default function StatsPanel({ apiUrl, code, shortUrl, onClose }: StatsPan
     setError('')
 
     requestJSON<Stats>(
-      `${apiUrl}/api/stats/${encodeURIComponent(code)}`,
+      `${apiUrl}/api/stats/${encodeURIComponent(link.code)}`,
       { signal: controller.signal },
       'No se pudieron cargar las estadísticas',
     )
@@ -48,7 +47,7 @@ export default function StatsPanel({ apiUrl, code, shortUrl, onClose }: StatsPan
       })
 
     return () => controller.abort()
-  }, [apiUrl, code])
+  }, [apiUrl, link.code])
 
   const maxCountry = Math.max(1, ...(stats?.by_country.map((item) => item.clicks) ?? [1]))
   const maxDay = Math.max(1, ...(stats?.by_day.map((item) => item.clicks) ?? [1]))
@@ -58,7 +57,7 @@ export default function StatsPanel({ apiUrl, code, shortUrl, onClose }: StatsPan
       <div className="panel-head">
         <div>
           <div className="eyebrow">Analíticas</div>
-          <h2>Estadísticas de {shortUrl}</h2>
+          <h2>Estadísticas de {link.short_url}</h2>
         </div>
         <button className="icon-button" onClick={onClose} aria-label="Cerrar panel">
           ×

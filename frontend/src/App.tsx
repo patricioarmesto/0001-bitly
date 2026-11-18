@@ -1,14 +1,8 @@
 import { useState, type FormEvent } from 'react'
-import { requestJSON } from './api'
+import { requestJSON, type ShortLink } from './api'
 import StatsPanel from './components/StatsPanel'
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
-
-interface ShortLink {
-  code: string
-  short_url: string
-  long_url: string
-}
 
 export default function App() {
   const [url, setUrl] = useState('')
@@ -129,12 +123,7 @@ export default function App() {
           </section>
 
           {selected && (
-            <StatsPanel
-              apiUrl={API_URL}
-              code={selected.code}
-              shortUrl={selected.short_url}
-              onClose={() => setSelected(null)}
-            />
+            <StatsPanel apiUrl={API_URL} link={selected} onClose={() => setSelected(null)} />
           )}
         </main>
       </div>
