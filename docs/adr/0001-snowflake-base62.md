@@ -17,7 +17,7 @@ El redirect busca `WHERE short_code = <key>`: la key ya identifica al link y no 
 
 - No hay colisiones al agregar servidores: la unicidad viene de `timestamp + worker_id + secuencia`, y cada servidor tiene un `worker_id` distinto. La secuencia es local, así que no hace falta coordinación con Postgres ni contadores compartidos.
 - No es predecible en el sentido de una secuencia global que empiece en 1; el timestamp desde 2024 encabeza el ID.
-- Los IDs quedan ordenados por tiempo de creación porque el timestamp ocupa los bits altos y base62 preserva el orden numérico del entero.
+- Los IDs quedan ordenados por tiempo de creación porque el timestamp ocupa los bits altos. Esa propiedad es numérica: no se traduce al orden lexicográfico de las keys base62 con este alfabeto.
 - Cada servidor debe configurar su `WORKER_ID` y no duplicarlo. Con 10 bits hay hasta 1024 servidores.
 - Un solo proceso está limitado a 4096 links por milisegundo; pasado ese límite absorbe espera hasta el siguiente milisegundo.
 - El reloj atrasado bloquea al generador hasta recuperar el último timestamp usado. Es preferible a emitir IDs repetidos: el generador sigue esperando, sin importar el tamaño del desfase.

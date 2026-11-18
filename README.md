@@ -73,7 +73,7 @@ Si el reloj retrocede, el generador espera a alcanzar el último timestamp usado
 
 - **No es predecible**: no arranca en 1 ni sigue una secuencia global visible; arranca con el milisegundo actual desde 2024.
 - **No necesita secuencia central**: la secuencia vive en memoria del proceso y se reinicia cada milisegundo. La unicidad entre servidores viene del `worker_id`, que es distinto en cada uno, así que no hay colisiones al agregar más.
-- **Queda ordenada por tiempo**: como el timestamp ocupa los 41 bits altos, ordenar los IDs (y sus keys base62) orderifica los links por fecha de creación.
+- **Queda ordenada por tiempo**: como el timestamp ocupa los 41 bits altos, ordenar los IDs numéricos orderifica los links por fecha de creación. Las keys base62 no conservan ese orden lexicográfico con este alfabeto.
 
 ## Cómo correrlo
 
