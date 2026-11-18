@@ -38,7 +38,7 @@ func TestCORS(t *testing.T) {
 	}
 }
 
-func TestHandleShortenUsaElGenerator(t *testing.T) {
+func TestHandleShortenUsesGenerator(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatal(err)

@@ -9,7 +9,7 @@ func splitSnowflake(id int64) (timestampMS, workerID, sequence int64) {
 	return id >> 22, (id >> 12) & 0x3FF, id & 0xFFF
 }
 
-func TestGeneratorCodificaSnowflake(t *testing.T) {
+func TestGeneratorEncodesSnowflake(t *testing.T) {
 	current := int64(63158400123) // milisegundos desde 2024-01-01
 	generator := NewGenerator(7)
 	generator.now = func() int64 { return current }
@@ -34,7 +34,7 @@ func TestGeneratorCodificaSnowflake(t *testing.T) {
 	}
 }
 
-func TestGeneratorSecuenciaSeReiniciaCadaMilisegundo(t *testing.T) {
+func TestGeneratorResetsSequenceEachMillisecond(t *testing.T) {
 	current := int64(1000)
 	generator := NewGenerator(0)
 	generator.now = func() int64 { return current }
@@ -62,7 +62,7 @@ func TestGeneratorSecuenciaSeReiniciaCadaMilisegundo(t *testing.T) {
 	}
 }
 
-func TestGeneratorEsperaAlProximoMilisegundoCuandoSeLlenaLaSecuencia(t *testing.T) {
+func TestGeneratorWaitsForNextMillisecondOnSequenceOverflow(t *testing.T) {
 	current := int64(1000)
 	generator := NewGenerator(0)
 	generator.now = func() int64 { return current }
@@ -89,7 +89,7 @@ func TestGeneratorEsperaAlProximoMilisegundoCuandoSeLlenaLaSecuencia(t *testing.
 	}
 }
 
-func TestGeneratorEsperaSiElRelojVaParaAtras(t *testing.T) {
+func TestGeneratorWaitsWhenClockMovesBackwards(t *testing.T) {
 	current := int64(5000)
 	generator := NewGenerator(3)
 	generator.now = func() int64 { return current }
@@ -114,7 +114,7 @@ func TestGeneratorEsperaSiElRelojVaParaAtras(t *testing.T) {
 	}
 }
 
-func TestGeneratorSigueEsperandoSiElRelojSigueAtrasado(t *testing.T) {
+func TestGeneratorKeepsWaitingWhenClockRemainsBehind(t *testing.T) {
 	current := int64(5000)
 	generator := NewGenerator(3)
 	generator.now = func() int64 { return current }
@@ -166,7 +166,7 @@ func TestGeneratorRejectsOutOfRangeTimestampWithoutCorruptingState(t *testing.T)
 	}
 }
 
-func TestGeneratorIdsCrecientesConRelojReal(t *testing.T) {
+func TestGeneratorIDsIncreaseWithRealClock(t *testing.T) {
 	generator := NewGenerator(0)
 	var previous int64
 	for i := 0; i < 1000; i++ {
