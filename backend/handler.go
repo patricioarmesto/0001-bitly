@@ -15,8 +15,9 @@ import (
 )
 
 const (
-	alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
-	cacheTTL = time.Hour
+	alphabet       = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	cacheTTL       = time.Hour
+	cacheKeyPrefix = "link:"
 )
 
 func encodeBase62(num uint64) string {
@@ -104,11 +105,11 @@ func (app *App) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cacheKey := "link:" + code
-	longURL, err := app.cache.Get(r.Context(), cacheKey).Result()
+	key := cacheKey(code)
+	longURL, err := app.cache.Get(r.Context(), key).Result()
 	if err != nil {
 		if !errors.Is(err, redis.Nil) {
-			log.Printf("leer caché %s: %v", cacheKey, err)
+			log.Printf("leer caché %s: %v", key, err)
 		}
 		err = app.db.QueryRowContext(r.Context(), "SELECT long_url FROM links WHERE short_code = $1", code).Scan(&longURL)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -171,8 +172,12 @@ func (app *App) recordClick(code, country string) {
 	}()
 }
 
+func cacheKey(code string) string {
+	return cacheKeyPrefix + code
+}
+
 func (app *App) cacheLink(r *http.Request, code, longURL string) {
-	if err := app.cache.Set(r.Context(), "link:"+code, longURL, cacheTTL).Err(); err != nil {
+	if err := app.cache.Set(r.Context(), cacheKey(code), longURL, cacheTTL).Err(); err != nil {
 		log.Printf("cachear link %s: %v", code, err)
 	}
 }
